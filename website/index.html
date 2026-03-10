@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GGU AI - The Autonomous Healing Agent</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
@@ -40,24 +44,92 @@
             </div>
         </header>
 
+        <section class="video-showcase reveal">
+            <h2 class="section-title">See GGU AI in Action</h2>
+            <div class="video-container">
+                <video controls poster="ASSETS/cicd_pipeline.png">
+                    <source src="ASSETS/PROCESS OF DOWNLOADING.mp4" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </section>
+
+        <section class="gallery reveal">
+            <h2 class="section-title">Visualizing the Future</h2>
+            <div class="gallery-grid">
+                <div class="gallery-item">
+                    <img src="ASSETS/cicd_pipeline.png" alt="CI/CD Pipeline Visualization">
+                    <div class="gallery-overlay">
+                        <span>Autonomous CI/CD</span>
+                    </div>
+                </div>
+                <div class="gallery-item">
+                    <img src="ASSETS/code_assistent.png" alt="AI Code Assistant">
+                    <div class="gallery-overlay">
+                        <span>Smart Code Repair</span>
+                    </div>
+                </div>
+                <div class="gallery-item">
+                    <img src="ASSETS/dashboard.png" alt="GGU AI Dashboard">
+                    <div class="gallery-overlay">
+                        <span>Real-time Monitoring</span>
+                    </div>
+                </div>
+                <div class="gallery-item">
+                    <img src="ASSETS/saved-repos.png" alt="Repository Management">
+                    <div class="gallery-overlay">
+                        <span>Effortless Management</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="terminal-demo reveal">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                    <span class="terminal-title">ggu-ai --status</span>
+                </div>
+                <div class="terminal-body" id="terminal-content">
+                    <div class="line"><span class="prompt">$</span> <span class="typing"
+                            data-text="ggu-ai start --healing-mode"></span></div>
+                </div>
+            </div>
+        </section>
+
         <section class="features">
-            <div class="feature-card">
-                <div class="f-icon">🤖</div>
-                <h3>Self-Healing Pipeline</h3>
-                <p>Automatically detects failures, classifies bugs, and applies precise patches using multi-LLM support
-                    (NVIDIA, OpenAI, Ollama).</p>
+            <div class="feature-card tilt-card">
+                <div class="glow"></div>
+                <div class="card-inner">
+                    <div class="f-icon">🤖</div>
+                    <h3>Self-Healing Pipeline</h3>
+                    <div class="scan-line"></div>
+                    <p>Automatically detects failures, classifies bugs, and applies precise patches using multi-LLM
+                        support
+                        (NVIDIA, OpenAI, Ollama).</p>
+                </div>
             </div>
-            <div class="feature-card">
-                <div class="f-icon">🌐</div>
-                <h3>Absolute Freedom</h3>
-                <p>A completely no-limit AI coding platform. Run up to 30 continuous fix-and-test iterations per loop
-                    directly on your machine.</p>
+            <div class="feature-card tilt-card">
+                <div class="glow"></div>
+                <div class="card-inner">
+                    <div class="f-icon">🌐</div>
+                    <h3>Absolute Freedom</h3>
+                    <p>A completely no-limit AI coding platform. Run up to 30 continuous fix-and-test iterations per
+                        loop
+                        directly on your machine.</p>
+                </div>
             </div>
-            <div class="feature-card">
-                <div class="f-icon">🛠️</div>
-                <h3>Developer Workspace</h3>
-                <p>Integrated interactive WebSocket terminal and Monaco Code Editor for viewing and editing AI-applied
-                    fixes seamlessly.</p>
+            <div class="feature-card tilt-card">
+                <div class="glow"></div>
+                <div class="card-inner">
+                    <div class="f-icon">🛠️</div>
+                    <h3>Developer Workspace</h3>
+                    <p>Integrated interactive WebSocket terminal and Monaco Code Editor for viewing and editing
+                        AI-applied
+                        fixes seamlessly.</p>
+                </div>
             </div>
         </section>
 
@@ -65,6 +137,8 @@
             <p>&copy; 2026 Crafted by hand by GGU AI. Distributed under the MIT License.</p>
         </footer>
     </main>
+
+    <script src="script.js"></script>
 </body>
 
 </html>
