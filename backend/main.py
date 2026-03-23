@@ -36,15 +36,7 @@ from pydantic import BaseModel
 
 from agents import run_pipeline
 from llm_client import _call_nvidia, _strip_markdown
-from git_utils import (
-    clone_repo, 
-    create_branch, 
-    commit_and_push, 
-    get_all_files, 
-    get_clone_path,
-    commit_changes,
-    push_changes
-)
+from document_processor import docx_to_html
 
 # ---------------------------------------------------------------------------
 # Database & Path Initialization
@@ -93,7 +85,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # App Initialization
 # ---------------------------------------------------------------------------
-app = FastAPI(title="CI/CD Healing Agent API", version="1.0.0")
+app = FastAPI(title="AI Document Healing Agent API", version="1.0.0")
 
 @app.get("/health")
 async def health_check():
@@ -122,7 +114,8 @@ class ConfigUpdate(BaseModel):
     nvidia_api_key: Optional[str] = None
 
 class AnalyzeRequest(BaseModel):
-    repo_url: str
+    doc_folder: str
+    excel_file: str
     team_name: str
     leader_name: str
 
@@ -359,15 +352,16 @@ def derive_branch_name(team_name: str, leader_name: str) -> str:
     import re
     team = re.sub(r"[^A-Za-z0-9 ]", "", team_name).strip().upper().replace(" ", "_")
     leader = re.sub(r"[^A-Za-z0-9 ]", "", leader_name).strip().upper().replace(" ", "_")
-    return f"{team}_{leader}_AI_Fix"
+    return f"{team}_{leader}_DOC_UPDATE"
 
-def _background_run(run_id: str, repo_url: str, team_name: str, leader_name: str, branch_name: str):
+def _background_run(run_id: str, doc_folder: str, excel_file: str, team_name: str, leader_name: str, branch_name: str):
     runs[run_id]["status"] = "running"
     try:
-        logger.info(f"[{run_id}] Starting pipeline for {repo_url}")
+        logger.info(f"[{run_id}] Starting pipeline for {doc_folder}")
         result = run_pipeline(
             run_id=run_id,
-            repo_url=repo_url,
+            doc_folder=doc_folder,
+            excel_file=excel_file,
             team_name=team_name,
             leader_name=leader_name,
             branch_name=branch_name,
@@ -388,21 +382,27 @@ def _background_run(run_id: str, repo_url: str, team_name: str, leader_name: str
 # ---------------------------------------------------------------------------
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest):
-    if not req.repo_url.startswith("http"):
-        raise HTTPException(status_code=400, detail="repo_url must be a valid HTTP/HTTPS GitHub URL")
-
+    # Allow local paths or URLs for doc processing
     run_id = str(uuid.uuid4())[:8]
     branch_name = derive_branch_name(req.team_name, req.leader_name)
+    logger.info(f">>> New Analysis Request [run_id={run_id}]")
+    logger.info(f"    Doc Folder: {req.doc_folder}")
+    logger.info(f"    Excel File: {req.excel_file}")
 
-    # Early registration of RUN_PATH to support terminal connection immediately
-    clone_path = get_clone_path(req.repo_url, run_id, req.team_name, req.leader_name)
-    RUN_PATHS[run_id] = clone_path
+    # Use requested path directly since we work on local folders now
+    folder_path = Path(req.doc_folder)
+    if not folder_path.exists() or not folder_path.is_dir():
+        pass
+
+    RUN_PATHS[run_id] = folder_path
     save_projects()
 
     runs[run_id] = {
         "status": "running",
         "team_name": req.team_name,
         "leader_name": req.leader_name,
+        "repo_url": req.doc_folder, # Legacy UI compatibility mapping
+        "excel_file": req.excel_file,
         "live": {
             "phase": "initializing",
             "message": "Starting pipeline...",
@@ -412,8 +412,50 @@ async def analyze(req: AnalyzeRequest):
         }
     }
 
-    threading.Thread(target=_background_run, args=(run_id, req.repo_url, req.team_name, req.leader_name, branch_name), daemon=True).start()
+    threading.Thread(target=_background_run, args=(run_id, req.doc_folder, req.excel_file, req.team_name, req.leader_name, branch_name), daemon=True).start()
     return AnalyzeResponse(run_id=run_id, message="Agent started", branch_name=branch_name)
+
+@app.get("/api/document/{run_id}/html")
+async def get_document_html(run_id: str, type: str = "after", file: str = ""):
+    repo_path = get_repo_path(run_id)
+    if not repo_path:
+        raise HTTPException(status_code=404, detail="Run not found")
+        
+    # By default `before` doc is the original, `after` is the modified.
+    # We expect `agents.py` to create a `fixed_docs/` or `before_docs/` logic.
+    prefix = ""
+    # Since we need to know what file to get, we use the `file` param (e.g. `example.docx`)
+    
+    if type == "before":
+        # Look for the copy saved
+        doc_path = repo_path / ".ggu_backup" / Path(file).name
+    else:
+        doc_path = repo_path / file
+        
+    if not doc_path.exists():
+        # Fallback appropriately
+        if type == "before":
+            doc_path = repo_path / file
+        if not doc_path.exists():
+            return JSONResponse({"html": f"File not found: {doc_path}"})
+            
+    highlight_edits = None
+    h_type = None
+    if run_id in runs:
+        res_path = repo_path / "results.json"
+        if res_path.exists():
+            try:
+                with open(res_path, "r") as f:
+                    results_data = json.load(f).get("fixes_table", [])
+                    # Filter edits for THIS specific file
+                    current_file_results = [r for r in results_data if r.get("file") == file]
+                    if current_file_results:
+                        highlight_edits = current_file_results[0].get("edits", [])
+                        h_type = type # 'before' or 'after'
+            except: pass
+
+    html_content = docx_to_html(str(doc_path), highlight_type=h_type, highlight_edits=highlight_edits)
+    return JSONResponse({"html": html_content})
 
 @app.post("/local/open")
 async def open_local_folder(req: LocalOpenRequest):

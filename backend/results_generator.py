@@ -21,7 +21,6 @@ def generate_results(
     start_time: datetime,
     end_time: datetime,
     final_status: str,           # "PASSED" | "FAILED"
-    commit_count: int,
     output_dir: str | None = None,
 ) -> dict:
     """
@@ -34,19 +33,15 @@ def generate_results(
     # --- Score Breakdown ---
     base_score = 100
     time_bonus = 10 if total_minutes < 5 else 0
-    excess_commits = max(0, commit_count - 20)
-    commit_penalty = excess_commits * 2
-    total_score = base_score + time_bonus - commit_penalty
+    total_score = base_score + time_bonus
 
     score_breakdown = {
         "base": base_score,
         "time_bonus": time_bonus,
-        "commit_penalty": commit_penalty,
         "total": max(0, total_score),
         "breakdown_notes": [
             f"Base score: {base_score}",
             f"Time bonus (+10 if <5 min): +{time_bonus}" if time_bonus else "No time bonus (run > 5 min)",
-            f"Commit penalty (-2 per commit >20): -{commit_penalty}" if commit_penalty else "No commit penalty",
         ],
     }
 
@@ -56,23 +51,22 @@ def generate_results(
     results = {
         "run_id": run_id,
         "run_summary": {
-            "repo_url": repo_url,
+            "doc_folder": repo_url,
             "team_name": team_name,
             "leader_name": leader_name,
-            "branch": branch_name,
-            "failures_found": len(fixes),
-            "fixes_applied": fix_count,
-            "fixes_failed": failure_count,
-            "final_ci_status": final_status,       # "PASSED" | "FAILED"
+            "session": branch_name,
+            "problems_found": len(fixes),
+            "edits_applied": fix_count,
+            "edits_failed": failure_count,
+            "final_status": final_status,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
             "total_time_seconds": round(total_seconds, 1),
             "total_time_human": _format_duration(total_seconds),
-            "total_commits": commit_count,
         },
         "score_breakdown": score_breakdown,
-        "fixes_table": fixes,   # [{file, bug_type, line, commit_message, status, sha}]
-        "cicd_timeline": ci_iterations,   # [{iteration, status, timestamp, message}]
+        "fixes_table": fixes,
+        "processing_timeline": ci_iterations,
     }
 
     # Optionally save to disk

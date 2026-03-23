@@ -47,8 +47,8 @@ export default function FixesTable() {
             header: 'Line',
             cell: info => <span className="mono" style={{ color: 'var(--accent-yellow)' }}>:{info.getValue() || '—'}</span>,
         }),
-        columnHelper.accessor('commit_message', {
-            header: 'Commit Message',
+        columnHelper.accessor('problem', {
+            header: 'Problem Description',
             cell: info => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{info.getValue() || '—'}</span>,
         }),
         columnHelper.accessor('status', {

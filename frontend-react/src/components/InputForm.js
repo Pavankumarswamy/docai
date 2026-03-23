@@ -1,5 +1,5 @@
 /**
- * InputForm.js – Repo URL, team name, leader name inputs + Run Agent button
+ * InputForm.js – Local Folder, Workspace Name, Owner Name inputs + Run Agent button
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -7,21 +7,19 @@ import { useApp } from '../App';
 import FolderPickerModal from './FolderPickerModal';
 
 export default function InputForm() {
-    const { startRun, startLocalRun, loadWorkspace, runState, configStatus, API_BASE } = useApp();
+    const { startRun, loadWorkspace, runState, API_BASE } = useApp();
     const isRunning = runState.status === 'running';
 
-    const [mode, setMode] = useState('github'); // 'github', 'local', or 'saved'
+    const [mode, setMode] = useState('local'); // 'local' or 'saved'
     const [savedWorkspaces, setSavedWorkspaces] = useState([]);
     const [loadingSaved, setLoadingSaved] = useState(false);
     const [form, setForm] = useState({
-        repoUrl: '',
         localPath: '',
-        teamName: 'AI PROJECT',
-        leaderName: 'SPKS',
+        excelPath: '',
+        teamName: 'DOC PROCESSING',
+        leaderName: 'USER',
     });
     const [isPickerOpen, setIsPickerOpen] = useState(false);
-
-    const branchPreview = deriveBranch(form.teamName, form.leaderName);
 
     const fetchWorkspaces = useCallback(async () => {
         setLoadingSaved(true);
@@ -41,74 +39,43 @@ export default function InputForm() {
         }
     }, [mode, fetchWorkspaces]);
 
-    function deriveBranch(team, leader) {
-        const clean = s => s.replace(/[^A-Za-z0-9 ]/g, '').trim().toUpperCase().replace(/ /g, '_');
-        if (!team && !leader) return 'TEAM_LEADER_AI_Fix';
-        return `${clean(team) || 'TEAM'}_${clean(leader) || 'LEADER'}_AI_Fix`;
-    }
-
     const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
     const handleSubmit = e => {
         e.preventDefault();
-        if (mode === 'github') {
-            if (!form.repoUrl.trim()) return;
-            startRun({ repoUrl: form.repoUrl, teamName: form.teamName, leaderName: form.leaderName });
-        } else {
-            if (!form.localPath.trim()) return;
-            startLocalRun({ path: form.localPath, teamName: form.teamName, leaderName: form.leaderName });
+        if (mode === 'local') {
+            if (!form.localPath.trim() || !form.excelPath.trim()) return;
+            startRun({ docFolder: form.localPath, excelFile: form.excelPath, teamName: form.teamName, leaderName: form.leaderName });
         }
     };
 
     return (
         <div className="input-page">
             <div className="input-hero">
-                <h1>🧬 Autonomous Project Workspace</h1>
+                <h1>📄 Document Processing Agent</h1>
                 <p className="input-subtitle">
-                    Mount a local folder or clone a GitHub repo to start building with the AI agent.
+                    Mount a local folder containing your specific Word documents and problem Excel file.
                 </p>
-
-                {mode === 'github' && !configStatus.github_pat_set && (
-                    <div className="error-banner" style={{ marginTop: 24, justifyContent: 'center' }}>
-                        <span>⚠️</span> GitHub Token missing! Please configure it in <strong>Settings</strong> to clone private repos.
-                    </div>
-                )}
             </div>
 
             <div className="source-toggle card">
-                <button className={`toggle-btn ${mode === 'github' ? 'active' : ''}`} onClick={() => setMode('github')}>
-                    🌐 GitHub Remote
-                </button>
                 <button className={`toggle-btn ${mode === 'local' ? 'active' : ''}`} onClick={() => setMode('local')}>
-                    💻 Local Device
+                    💻 Local Folder
                 </button>
                 <button className={`toggle-btn ${mode === 'saved' ? 'active' : ''}`} onClick={() => setMode('saved')}>
-                    🧬 Autonomous Project Workspace
+                    📁 Saved Workspaces
                 </button>
             </div>
 
             <form className="input-form card" onSubmit={handleSubmit}>
-                {mode === 'github' ? (
+                {mode === 'local' ? (
                     <div className="field-group animate-fade">
-                        <label className="field-label">GitHub Repository URL</label>
-                        <input
-                            type="url"
-                            name="repoUrl"
-                            placeholder="https://github.com/owner/repo"
-                            value={form.repoUrl}
-                            onChange={handleChange}
-                            required
-                            disabled={isRunning}
-                        />
-                    </div>
-                ) : mode === 'local' ? (
-                    <div className="field-group animate-fade">
-                        <label className="field-label">Project Folder Path</label>
+                        <label className="field-label">Target Folder Path</label>
                         <div className="input-with-action">
                             <input
                                 type="text"
                                 name="localPath"
-                                placeholder="C:\Users\Name\Projects\my-app"
+                                placeholder="C:\Users\Name\Documents\MyDocs"
                                 value={form.localPath}
                                 onChange={handleChange}
                                 required
@@ -123,15 +90,29 @@ export default function InputForm() {
                                 📂 Browse
                             </button>
                         </div>
-                        <span className="field-hint">Select a project folder directly from your device.</span>
+                        <span className="field-hint">Select the folder holding your .docx files.</span>
+                        
+                        <label className="field-label" style={{ marginTop: '12px' }}>Target Excel File</label>
+                        <div className="input-with-action">
+                            <input
+                                type="text"
+                                name="excelPath"
+                                placeholder="C:\Users\Name\Documents\MyDocs\bugs.xlsx"
+                                value={form.excelPath}
+                                onChange={handleChange}
+                                required
+                                disabled={isRunning}
+                            />
+                        </div>
+                        <span className="field-hint">Provide the absolute path to your problem context Excel file.</span>
                     </div>
                 ) : (
                     <div className="field-group animate-fade">
-                        <label className="field-label">🧬 Autonomous Project Workspace</label>
+                        <label className="field-label">📁 Saved Workspaces</label>
                         {loadingSaved ? (
                             <div className="loading-placeholder">🔍 Searching for workspaces…</div>
                         ) : savedWorkspaces.length === 0 ? (
-                            <div className="empty-saved">No saved workspaces found. Clone or mount one first!</div>
+                            <div className="empty-saved">No saved workspaces found. Mount a new folder first!</div>
                         ) : (
                             <div className="saved-list">
                                 {savedWorkspaces.map(ws => (
@@ -168,18 +149,18 @@ export default function InputForm() {
                         <input
                             type="text"
                             name="teamName"
-                            placeholder="e.g. AI PROJECT"
+                            placeholder="e.g. DOC PROCESSING"
                             value={form.teamName}
                             onChange={handleChange}
                             disabled={isRunning}
                         />
                     </div>
                     <div className="field-group">
-                        <label className="field-label">Project Owner</label>
+                        <label className="field-label">Owner</label>
                         <input
                             type="text"
                             name="leaderName"
-                            placeholder="e.g. SPKS"
+                            placeholder="e.g. USER"
                             value={form.leaderName}
                             onChange={handleChange}
                             disabled={isRunning}
@@ -188,18 +169,18 @@ export default function InputForm() {
                 </div>
 
                 <div className="branch-preview">
-                    <span className="section-label">{mode === 'github' ? 'AI-Fix Branch' : 'Local Context'}</span>
+                    <span className="section-label">Session Name</span>
                     <span className="branch-name mono">
-                        {mode === 'github' ? `🔀 ${branchPreview}` : `📂 ${form.leaderName || 'Project'}_Dev_Session`}
+                        📂 {form.leaderName || 'Project'}_Dev_Session
                     </span>
                 </div>
 
                 {mode !== 'saved' && (
-                    <button type="submit" className="btn-primary run-btn" disabled={isRunning || (mode === 'github' && !form.repoUrl) || (mode === 'local' && !form.localPath)}>
+                    <button type="submit" className="btn-primary run-btn" disabled={isRunning || !form.localPath || !form.excelPath}>
                         {isRunning ? (
-                            <><span className="spinner" /> Mounting Workspace…</>
+                            <><span className="spinner" /> Processing Documents…</>
                         ) : (
-                            mode === 'github' ? '▶ Run Agent & Clone' : '▶ Mount Local Folder'
+                            '▶ Start Document Processing'
                         )}
                     </button>
                 )}
@@ -209,7 +190,7 @@ export default function InputForm() {
                 isOpen={isPickerOpen}
                 onClose={() => setIsPickerOpen(false)}
                 onSelect={(path) => setForm(f => ({ ...f, localPath: path }))}
-                API_BASE={useApp().API_BASE}
+                API_BASE={API_BASE}
             />
 
             <div className="info-grid">
@@ -230,12 +211,12 @@ export default function InputForm() {
 }
 
 const INFO_CARDS = [
-    { icon: '🔍', title: 'Discovery', desc: 'Auto-detects all test files in the repository' },
-    { icon: '🐳', title: 'Sandboxed', desc: 'Tests run in isolated Docker containers' },
-    { icon: '🤖', title: 'LLM-Powered', desc: 'Ollama / OpenAI generate precise patches' },
-    { icon: '🔁', title: 'Iterative', desc: 'Up to 5 retry loops until all tests pass' },
-    { icon: '📊', title: 'Scored', desc: 'Score breakdown with bonuses & penalties' },
-    { icon: '🚀', title: 'Auto-Push', desc: 'Commits & pushes to a dedicated AI-Fix branch' },
+    { icon: '📂', title: 'Folder Scanning', desc: 'Auto-detects Word docs and Excel files' },
+    { icon: '📝', title: 'Content Extraction', desc: 'Reads paragraphs and tables from Word' },
+    { icon: '🤖', title: 'LLM-Powered', desc: 'Analyzes problems and generates edits' },
+    { icon: '🔁', title: 'Iterative Fixes', desc: 'Applies edits across multiple iterations' },
+    { icon: '📊', title: 'Diff Viewing', desc: 'See side-by-side original and modified docs' },
+    { icon: '🚀', title: 'Detailed Logging', desc: 'Outputs changes to edits_log.json' },
 ];
 
 const STYLES = `
@@ -332,3 +313,4 @@ const STYLES = `
   .empty-saved { padding: 32px; text-align: center; color: var(--text-muted); font-size: 0.85rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
   .loading-placeholder { padding: 20px; text-align: center; color: var(--accent-cyan); font-size: 0.85rem; }
 `;
+

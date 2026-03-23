@@ -117,13 +117,23 @@ export default function App() {
     }, [fetchConfig]);
 
     // ── Start a run ──────────────────────────────────────────────────────────
-    const startRun = useCallback(async ({ repoUrl, teamName, leaderName }) => {
+    const startRun = useCallback(async ({ docFolder, excelFile, teamName, leaderName }) => {
         try {
-            setRunState(s => ({ ...s, status: 'running', repoUrl, teamName, leaderName, result: null, error: null }));
+            setRunState(s => ({ 
+                ...s, 
+                status: 'running', 
+                repoUrl: docFolder, 
+                teamName, 
+                leaderName, 
+                result: null, 
+                error: null,
+                live: { phase: 'initializing', message: 'Starting...', iterations: [], files: [] }
+            }));
             setActiveTab('results');
 
             const { data } = await axios.post(`${API_BASE}/analyze`, {
-                repo_url: repoUrl,
+                doc_folder: docFolder,
+                excel_file: excelFile,
                 team_name: teamName,
                 leader_name: leaderName,
             });
@@ -297,7 +307,7 @@ export default function App() {
                     <div className="app-header-logo">
                         <span className="logo-icon">⚡</span>
                         <span className="logo-text">GGU AI <span className="logo-year">2026</span></span>
-                        <span className="logo-sub">Autonomous CI/CD Healing Agent</span>
+                        <span className="logo-sub">Autonomous Document Processing Agent</span>
                     </div>
 
                     <nav className="app-tabs">

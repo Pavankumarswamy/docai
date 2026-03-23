@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo   GGU AI CI/CD Healing Agent - Integrated App Build
+echo   GGU AI Document Processing Agent - Integrated App Build
 echo ===================================================
 
 echo.
@@ -28,7 +28,7 @@ cd ..
 echo.
 echo ===================================================
 echo   BUILD COMPLETE!
-echo   Installer location: electron-app\dist\GGU AI CI-CD Healing Agent Setup 1.0.0.exe
+echo   Installer location: electron-app\dist\GGU AI Document Processing Agent Setup 1.1.0.exe
 echo ===================================================
 pause
 
