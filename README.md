@@ -42,6 +42,15 @@ python run_backend.py
 
 ---
 
+## 🏁 Performance Benchmarks
+We tested DOCAI version 2.0 with a standard 10-section SRS Document (approx. 200 paragraphs) and a complex bug context list:
+- **Total Time Taken**: 158.85 seconds (~2.6 minutes)
+- **Sections Processed**: 10
+- **Double-Pass Efficiency**: ~15 seconds per logical section
+- **Model**: Local Ollama (qwen2.5:3b) / NVIDIA Mixtral fallback
+
+---
+
 ## 📜 Details
 - **Architecture**: FastAPI, LangGraph, Python-Docx
 - **LLM Support**: Configured to connect simultaneously to NVIDIA Inference APIs and fallback seamlessly to Local Ollama instances.
