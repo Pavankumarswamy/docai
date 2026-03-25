@@ -35,14 +35,13 @@ async function startProcessing() {
 
     try {
         const payload = {
-            repo_url: folderPath,
-            excel_file_path: excelPath,
-            branch_name: "DOC_UPDATE",
+            doc_folder: folderPath,
+            excel_file: excelPath,
             team_name: "DOCAI",
             leader_name: "PROJECT",
         };
 
-        const response = await fetch(`${API_BASE}/api/run`, {
+        const response = await fetch(`${API_BASE}/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -70,7 +69,7 @@ async function pollStatus(runId) {
     
     pollInterval = setInterval(async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/status/${runId}`);
+            const res = await fetch(`${API_BASE}/results/${runId}`);
             if (!res.ok) return;
             const data = await res.json();
             
