@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 
 from document_processor import (
     extract_problems_from_excel,
-    extract_text_and_tables_from_docx,
-    generate_document_fix,
+    extract_sections_from_docx,
     apply_edits_to_docx
 )
 from results_generator import generate_results
+from multi_agents import multi_agent_pipeline
+from docx import Document
 
 logger = logging.getLogger(__name__)
 
@@ -76,74 +77,138 @@ def run_pipeline(
             update_live("done", "No problems found in Excel.")
             return {}
             
+        # Create CSV string representation
+        csv_string = "### ALL CSV ROWS ###\n"
+        for i, row in enumerate(problems):
+            csv_string += f"Row {i+1}:\n" + "\n".join([f"  {k}: {v}" for k, v in row.items() if str(v).strip()]) + "\n\n"
+            
         ci_timeline = []
-        
-        # Determine Backup folder
-        backup_dir = folder_path / ".ggu_backup"
+        backup_dir = folder_path / ".backup"
         backup_dir.mkdir(exist_ok=True)
         
-        # 3. For each Word Document, process problems
         final_status = "PASSED"
         
         for doc_idx, doc_file in enumerate(docx_files):
             doc_rel_path = str(doc_file.relative_to(folder_path)).replace("\\", "/")
-            update_live("execution", f"Processing {doc_file.name} [{doc_idx+1}/{len(docx_files)}]...")
+            update_live("execution", f"Processing {doc_file.name} [{doc_idx+1}/{len(docx_files)}]")
             
-            # Backup original document for 'before' view
+            # Backup original
             backup_path = backup_dir / doc_file.name
             if not backup_path.exists():
                 shutil.copy2(doc_file, backup_path)
                 
-            doc_content = extract_text_and_tables_from_docx(str(doc_file))
-            if not doc_content:
-                update_live(append_terminal=f">>> Failed to extract content from {doc_file.name}")
+            sections = extract_sections_from_docx(str(doc_file))
+            if not sections:
+                update_live(append_terminal=f">>> Failed to extract sections from {doc_file.name}")
                 continue
-                
-            iteration_failures = len(problems)
-            iter_start = datetime.now(timezone.utc)
             
+            update_live(append_terminal=f">>> Detected {len(sections)} sections in {doc_file.name}")
+                
+            iter_start = datetime.now(timezone.utc)
             ci_timeline.append({
                 "iteration": doc_idx + 1,
                 "status": "PROCESS",
                 "timestamp": iter_start.isoformat(),
-                "problems_count": iteration_failures,
-                "message": f"Processing {doc_file.name} against {len(problems)} problems",
+                "problems_count": len(problems),
+                "message": f"Processing {len(sections)} sections",
             })
             live["iterations"] = ci_timeline
             
-            for p_idx, problem_row in enumerate(problems):
-                # problem_row is a dict from excel. Convert to string description
-                problem_desc = "\\n".join([f"{k}: {v}" for k, v in problem_row.items() if str(v).strip()])
-                update_live("fixing", f"Applying Agent LLM Fix for Problem {p_idx+1} on {doc_file.name}...")
+            all_document_edits = []
+            change_report_doc = Document()
+            change_report_doc.add_heading(f"Change Tracking Report: {doc_file.name}", level=1)
+            
+            # Count elements
+            sections_skipped = 0
+            sections_processed = 0
+            llm_calls_total = 0
+            
+            for s_idx, section in enumerate(sections):
+                s_name = section["name"]
                 
-                # generate fix using LLM
-                fix_data = generate_document_fix(problem_desc, doc_content, run_id)
-                edits = fix_data.get("edits", [])
-                explanation = fix_data.get("explanation", "No explanation provided.")
+                if section["skip"]:
+                    sections_skipped += 1
+                    update_live(append_terminal=f"[SKIP] Ignored restricted or pre-intro section: {s_name}")
+                    continue
+                    
+                update_live("fixing", f"Running Multi-Agent Pipeline on Section: {s_name}")
+                sections_processed += 1
+                llm_calls_total += 2 # Passes 1 and 2
                 
-                update_live(append_terminal=f"--- Problem {p_idx+1} ---")
-                update_live(append_terminal=explanation)
+                initial_state = {
+                    "section_name": s_name,
+                    "original_section": section["content"],
+                    "csv_rows": csv_string,
+                    "pass1_edits": [],
+                    "final_edits": [],
+                    "explanation": "",
+                    "errors": []
+                }
                 
-                if edits:
-                    # Apply changes back to document
-                    applied_edits = apply_edits_to_docx(str(doc_file), edits, str(doc_file))
-                    update_live(append_terminal=f">>> Applied {len(applied_edits)} edit(s) to {doc_file.name}")
+                try:
+                    result_state = multi_agent_pipeline.invoke(initial_state)
+                    
+                    final_edits = result_state.get("final_edits", [])
+                    explanation = result_state.get("explanation", "No explanation.")
+                    
+                    if not final_edits:
+                        update_live(append_terminal=f"[{s_name}] No meaningful updates required -> Source retained.")
+                        continue
+                        
+                    all_document_edits.extend(final_edits)
+                    update_live(append_terminal=f"[{s_name}] Generated {len(final_edits)} edits. Reason: {explanation}")
                     
                     # Store fix info for json report
                     all_fixes.append({
                         "file": doc_rel_path,
-                        "problem": problem_desc,
+                        "problem": f"Section Review: {s_name}",
                         "bug_type": "DOCUMENT_EDIT",
                         "error_message": explanation,
-                        "status": "fixed" if applied_edits else "failed",
-                        "agent": "GGU AI-Doc-Heal-Agent",
-                        "edits": applied_edits
+                        "status": "fixed",
+                        "agent": "DOCAI-LangGraph",
+                        "edits": final_edits
                     })
                     
-                    # Refresh doc_content for next problem
-                    doc_content = extract_text_and_tables_from_docx(str(doc_file))
-                else:
-                    update_live(append_terminal=f">>> No edits returned for Problem {p_idx+1}")
+                    # Append to change tracking word doc
+                    heading = change_report_doc.add_heading(f"Section: {s_name}", level=2)
+                    
+                    change_report_doc.add_heading("Original Content Snippet (from context):", level=3)
+                    orig_preview = section["content"][:500] + ("..." if len(section["content"]) > 500 else "")
+                    change_report_doc.add_paragraph(orig_preview)
+                    
+                    change_report_doc.add_heading("Edits Applied (JSON):", level=3)
+                    change_report_doc.add_paragraph(json.dumps(final_edits, indent=2))
+                    
+                    change_report_doc.add_heading("Summary of Changes:", level=3)
+                    change_report_doc.add_paragraph(explanation)
+                    
+                    change_report_doc.add_heading("CSV Context Used:", level=3)
+                    change_report_doc.add_paragraph("Full CSV problem queue passed to Multi-Agent Pipeline.")
+                    
+                    change_report_doc.add_paragraph("-" * 60)
+                    
+                except Exception as e:
+                    update_live(append_terminal=f"[{s_name}] LLM Processing Error -> {e}. Retaining original content.")
+                    continue
+            
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")    
+            
+            if all_document_edits:
+                update_live(append_terminal=f">>> Applying {len(all_document_edits)} total edits back to document...")
+                output_name = f"{doc_file.stem}_{date_str}.docx"
+                output_path = folder_path / output_name
+                
+                apply_edits_to_docx(str(doc_file), all_document_edits, str(output_path))
+                update_live(append_terminal=f">>> Saved updated document: {output_name}")
+            else:
+                update_live(append_terminal=">>> No changes made to the document.")
+                
+            report_name = f"change_report_{doc_file.stem}_{date_str}.docx"
+            report_path = folder_path / report_name
+            change_report_doc.save(report_path)
+            update_live(append_terminal=f">>> Saved change report: {report_name}")
+            
+            update_live(append_terminal=f"\n[SECTION STATS] Processed: {sections_processed} | Skipped: {sections_skipped} | LLM Calls: {llm_calls_total}\n")
                     
         # Write edits log
         edits_log_path = folder_path / "edits_log.json"

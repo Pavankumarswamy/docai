@@ -1,3 +1,4 @@
+import re
 import os
 import io
 import json
@@ -11,6 +12,14 @@ from datetime import datetime, timezone
 from llm_client import _call_nvidia, _strip_markdown
 
 logger = logging.getLogger(__name__)
+
+RESTRICTED_SECTIONS = [
+    "scope of process note",
+    "systems involved",
+    "list of stakeholders",
+    "block diagram",
+    "roles and responsibilities"
+]
 
 def extract_problems_from_excel(excel_path: str) -> list[dict]:
     """Reads the first sheet of an Excel file and returns rows as dictionaries."""
@@ -59,7 +68,6 @@ def extract_text_and_tables_from_docx(doc_path: str) -> str:
 
         for i, block in enumerate(iter_block_items(doc)):
             if isinstance(block, Paragraph):
-                # Always include the paragraph ID even if empty to ensure 1:1 mapping with the blocks list
                 text = block.text.strip()
                 content.append(f"[Paragraph {i}] {text if text else '(Empty)'}")
             elif isinstance(block, Table):
@@ -75,6 +83,112 @@ def extract_text_and_tables_from_docx(doc_path: str) -> str:
     except Exception as e:
         logger.error(f"Failed to extract content from {doc_path}: {e}")
         return ""
+
+def is_heading(paragraph):
+    """Determine if a paragraph acts as a section heading."""
+    style_name = paragraph.style.name if paragraph.style else ""
+    if style_name and style_name.startswith("Heading"):
+        return True
+    
+    text = paragraph.text.strip()
+    if not text:
+        return False
+        
+    # Check for specific heading keywords from requirements
+    keyword_match = re.match(r'^(INTRODUCTION|SCOPE\s.*|SYSTEMS\s.*|LIST\sOF\s.*|BLOCK\sDIAGRAM.*|ROLES\sAND\s.*)$', text, re.IGNORECASE)
+    if keyword_match:
+        return True
+        
+    # Check for numbered headings (e.g., 1.0 Title, 1.1 Subtitle)
+    if re.match(r'^(\d+\.)+\s+[A-Z]', text):
+        return True
+        
+    # Check for ALL CAPS short phrases that might act as titles
+    if text.isupper() and 2 <= len(text.split()) <= 10:
+        return True
+        
+    return False
+
+def extract_sections_from_docx(doc_path: str) -> list[dict]:
+    """Extracts logical sections, skipping before 'INTRODUCTION' and restricted sections."""
+    try:
+        doc = Document(doc_path)
+        sections = []
+        
+        from docx.document import Document as _Document
+        from docx.oxml.text.paragraph import CT_P
+        from docx.oxml.table import CT_Tbl
+        from docx.table import Table, _Cell
+        from docx.text.paragraph import Paragraph
+        
+        def get_blocks(parent):
+            blocks = []
+            parent_elm = parent.element.body if isinstance(parent, _Document) else parent._tc
+            for child in parent_elm.iterchildren():
+                if isinstance(child, CT_P): blocks.append(Paragraph(child, parent))
+                elif isinstance(child, CT_Tbl): blocks.append(Table(child, parent))
+            return blocks
+            
+        blocks = get_blocks(doc)
+        
+        current_section_name = "Header Documents"
+        current_blocks = []
+        current_content = []
+        started_processing = False
+        
+        for i, block in enumerate(blocks):
+            if isinstance(block, Paragraph):
+                text = block.text.strip()
+                if is_heading(block):
+                    # Save precious section
+                    if current_blocks:
+                        norm_name = current_section_name.strip().lower()
+                        should_skip = not started_processing or any(rs in norm_name for rs in RESTRICTED_SECTIONS)
+                        
+                        sections.append({
+                            "name": current_section_name,
+                            "content": "\n".join(current_content),
+                            "blocks": current_blocks,
+                            "skip": should_skip
+                        })
+                    
+                    # Start new section
+                    current_section_name = text
+                    current_blocks = [i]
+                    current_content = [f"[Paragraph {i}] {text if text else '(Empty)'}"]
+                    
+                    if "introduction" in text.lower():
+                        started_processing = True
+                        
+                else:
+                    current_blocks.append(i)
+                    current_content.append(f"[Paragraph {i}] {text if text else '(Empty)'}")
+                    
+            elif isinstance(block, Table):
+                current_blocks.append(i)
+                current_content.append(f"[Table {i}]")
+                for r_idx, row in enumerate(block.rows):
+                    row_data = []
+                    for c_idx, cell in enumerate(row.cells):
+                        cell_text = cell.text.replace('\n', ' ').strip()
+                        row_data.append(f"C{c_idx}: {cell_text if cell_text else ''}")
+                    current_content.append(f"  Row {r_idx} | " + " | ".join(row_data))
+        
+        # Add the last section
+        if current_blocks:
+            norm_name = current_section_name.strip().lower()
+            should_skip = not started_processing or any(rs in norm_name for rs in RESTRICTED_SECTIONS)
+            sections.append({
+                "name": current_section_name,
+                "content": "\n".join(current_content),
+                "blocks": current_blocks,
+                "skip": should_skip
+            })
+            
+        return sections
+    except Exception as e:
+        logger.error(f"Failed to extract sections from {doc_path}: {e}")
+        return []
 
 def generate_document_fix(problem_desc: str, doc_content: str, run_id: str) -> dict:
     """Calls the LLM to figure out what edits to make based on the problem."""

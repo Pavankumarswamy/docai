@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCAI – Document Recovery Agent</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="theme-black">
+    <div id="root">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="app-header-logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">DOCAI <span class="logo-year">Agent</span></span>
+            </div>
+            <div class="app-actions">
+                <span class="badge badge-green">Ready</span>
+            </div>
+        </header>
+
+        <!-- Main Content Layout -->
+        <div class="main-layout">
+            <div class="content">
+                <div class="input-page">
+                    <div class="source-toggle card">
+                        <button class="toggle-btn active" id="tab-local" onclick="switchTab('local')">
+                            💻 Local Folder
+                        </button>
+                        <button class="toggle-btn" id="tab-history" onclick="switchTab('history')">
+                            📁 History
+                        </button>
+                    </div>
+
+                    <!-- Local Process View -->
+                    <div id="view-local" class="card main-card">
+                        <div class="card-header">
+                            <h2>Process Local Documents</h2>
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">TARGET FOLDER PATH</label>
+                            <input type="text" id="target-folder" placeholder="e.g. C:\Users\Name\Documents\MyDocs" value="C:\Users\Name\Documents\MyDocs">
+                            <p class="field-hint">Select the folder holding your .docx files.</p>
+                        </div>
+
+                        <div class="field-group">
+                            <label class="field-label">TARGET EXCEL FILE</label>
+                            <input type="text" id="target-excel" placeholder="e.g. C:\Users\Name\Documents\MyDocs\bugs.xlsx" value="C:\Users\Name\Documents\MyDocs\bugs.xlsx">
+                            <p class="field-hint">Provide the absolute path to your problem context Excel file.</p>
+                        </div>
+
+                        <button id="run-btn" class="btn-primary run-btn" onclick="startProcessing()">
+                            ▶ Start Document Processing
+                        </button>
+                        
+                        <!-- Status and Results Area -->
+                        <div id="status-area" style="display: none; margin-top: 24px;">
+                            <div class="glow-divider"></div>
+                            <h3 id="status-text">Processing... Please wait.</h3>
+                            <div class="progress-bar-container">
+                                <div id="progress-bar" class="progress-bar"></div>
+                            </div>
+                        </div>
+                        
+                        <div id="results-area" style="display: none; margin-top: 24px;">
+                            <div class="glow-divider"></div>
+                            <h3 style="color: var(--accent-green);">✅ Processing Complete</h3>
+                            <div id="results-content" class="results-content"></div>
+                        </div>
+                    </div>
+
+                    <!-- History View -->
+                    <div id="view-history" class="card main-card" style="display: none;">
+                        <div class="card-header">
+                            <h2>Saved Workspaces</h2>
+                            <button class="btn-primary" onclick="loadHistory()">Refresh</button>
+                        </div>
+                        <div id="history-content" class="history-content">
+                            <p class="text-secondary">Loading history...</p>
+                        </div>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

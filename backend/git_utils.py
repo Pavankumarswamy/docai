@@ -29,9 +29,8 @@ def get_clone_path(repo_url: str, run_id: str, team_name: str = "", leader_name:
     team = re.sub(r"[^A-Za-z0-9 ]", "", team_name).strip().replace(" ", "_")
     leader = re.sub(r"[^A-Za-z0-9 ]", "", leader_name).strip().replace(" ", "_")
     
-    # Premium folder name per user request: Branch_Preview_🔀_GGU AI_team_leader_AI_Fix
-    # We keep run_id as a prefix to ensure uniqueness and compatibility with existing backend split logic
-    premium_name = f"GGU AI_{team}_{leader}_AI_Fix"
+    # Premium folder name per user request
+    premium_name = f"AGENT_{team}_{leader}_Fix"
     return CLONES_DIR / f"{run_id}_{premium_name}"
 
 

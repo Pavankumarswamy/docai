@@ -23,5 +23,6 @@ mammoth>=1.8.0
 # Note: crewai has Python <3.12 restriction; we use concurrent.futures natively
 # Uncomment if you are on Python 3.11:
 # crewai>=0.28.0
-# langchain>=0.2.0
+langchain-core>=0.2.0
+langgraph>=0.0.60
 # langchain-openai>=0.1.0

@@ -1,69 +1,48 @@
-# 📄 GGU AI – Autonomous Word Document Processing Agent
-
+# 📄 DOCAI – LangGraph Multi-Agent Document Processor
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.1.0-gold?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/Purpose-Document%20Healing-green?style=for-the-badge" alt="Purpose">
+  <img src="https://img.shields.io/badge/Version-2.0.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Purpose-Multi--Agent%20Document%20Healing-green?style=for-the-badge" alt="Purpose">
   <img src="https://img.shields.io/badge/Platform-Windows%20x64-blue?style=for-the-badge&logo=windows" alt="Platform">
   <img src="https://img.shields.io/badge/Python-3.12+-yellow?style=for-the-badge&logo=python" alt="Python">
-  <img src="https://img.shields.io/badge/Build-One--Click-orange?style=for-the-badge" alt="Build">
 </p>
 
-![Document Agent Preview](ui/document_agent_preview.png)
-
 > **Transform manual document editing into an automated, AI-driven workflow.** 
-> The GGU AI Document Agent is a specialized suite that parses Excel bug lists, analyzes Word documents, and applies precise text/table fixes with professional-grade side-by-side verification.
+> DOCAI is a specialized suite powered by **LangGraph** that parses Excel problem lists, analyzes Word documents section-by-section, and applies precise text/table edits entirely autonomously using a double-pass LLM pipeline.
 
 ---
 
 ## 🔥 Key Features
 
-### 🤖 Intelligent Patching Engine
-- **Precise Fragment Replacement**: Uses `python-docx` to target specific text fragments within paragraphs and tables without losing formatting.
-- **Structural Integrity**: Maintains document headers, numbering (e.g., 4.2 stays 4.2), and overall hierarchy through specialized LLM guidance.
-- **Table Support**: Automatically finds and repairs content inside complex Word tables using row/column addressing.
+### 🤖 Multi-Agent LangGraph Pipeline
+- **Section Extraction**: Intelligently groups Word (`.docx`) content into logical sections based on headings, entirely ignoring the first few header pages and forcefully skipping restricted sections (e.g., "Scope of Process Note").
+- **Editor (Pass 1)**: Analyzes the target section against the entire CSV context to determine exact target edits.
+- **Reviewer (Pass 1.5)**: Strictly validates LLM output to ensure zero structural corruption and enforces strict **Business Language Rules** (never outputting terms like "bug fixed").
+- **Refiner (Pass 2)**: Re-evaluates Pass 1 edits for redundancy and clarity before final application.
 
-### 📊 Professional Diff Viewer
-- **Symmetrical Highlighting**: See exactly what changed in a high-fidelity split-pane view.
-    - **Original (Left)**: ~~Red strike-through~~ for removed content.
-    - **AI Edited (Right)**: **Gold background** for new fixes.
-- **Transient Markers**: Highlighting is generated in-memory. Your original `.docx` files stay 100% clean and marker-free!
-
-### ⚙️ Automated Workflow
-- **Excel Batching**: Process hundreds of rows from a single `.xlsx` file across multiple Word documents in one go.
-- **Real-time Status**: Live terminal output showing analysis progress, LLM decisions, and applied fix IDs.
-- **Automatic Backups**: Every document is automatically backed up to `.ggu_backup/` before the first edit.
+### ⚡ Pure HTML/JS Frontend + FastAPI
+- **Zero Build Tools**: The frontend is built entirely in Vanilla JS/HTML/CSS and served natively straight out of the FastAPI backend. No React, no Webpack, no `npm install`.
+- **Fast UI**: Select your target folder and target Excel context file securely through a robust local web interface.
+- **Change Tracking**: Automatically outputs a `change_report_YYYY-MM-DD.docx` file detailing the original content, exactly formatted edit JSON payloads, and context used.
 
 ---
 
 ## 🚀 Quick Start (Development Mode)
 
-### 1. Backend (Python)
+### Start the Application
+Since the frontend is served statically alongside the backend, you only need to run one single command:
+
 ```bash
 cd backend
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
+python run_backend.py
 ```
-
-### 2. Frontend (React)
-```bash
-cd frontend-react
-npm install
-npm start
-# → http://localhost:3000
-```
+**Access DOCAI at:** `http://localhost:8000`
 
 ---
 
-## 📦 Production Build
-To generate a standalone Windows installer:
-```powershell
-.\build_integrated_app.bat
-```
-Output: `electron-app\dist\GGU AI Document Processing Agent Setup 1.1.0.exe`
-
----
-
-## 📜 License
-Distributed under the **MIT License**. © 2026 Crafted by GGU AI.
+## 📜 Details
+- **Architecture**: FastAPI, LangGraph, Python-Docx
+- **LLM Support**: Configured to connect simultaneously to NVIDIA Inference APIs and fallback seamlessly to Local Ollama instances.
+- **License**: MIT

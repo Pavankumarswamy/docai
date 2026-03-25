@@ -224,7 +224,7 @@ def add_chat_message(run_id: str, session_id: str, role: str, content: str):
         # 2. Workspace-specific JSON file (mirror)
         repo_path = get_repo_path(run_id)
         if repo_path and repo_path.exists():
-            history_dir = repo_path / ".gguai"
+            history_dir = repo_path / ".agent"
             history_dir.mkdir(exist_ok=True)
             history_file = history_dir / "chat_history.json"
             
@@ -314,7 +314,7 @@ def refresh_run_files(run_id: str, repo_path: Path) -> list[dict]:
 
 def import_chat_history(run_id: str, repo_path: Path):
     """Try to import chat history from the workspace folder if empty in the central DB."""
-    history_file = repo_path / ".gguai" / "chat_history.json"
+    history_file = repo_path / ".agent" / "chat_history.json"
     if not history_file.exists(): return
     
     try:
@@ -428,7 +428,7 @@ async def get_document_html(run_id: str, type: str = "after", file: str = ""):
     
     if type == "before":
         # Look for the copy saved
-        doc_path = repo_path / ".ggu_backup" / Path(file).name
+        doc_path = repo_path / ".backup" / Path(file).name
     else:
         doc_path = repo_path / file
         
@@ -554,7 +554,7 @@ async def chat_with_agent(req: ChatRequest):
         project_root = project_type_info["root"]
 
         system_instruction = (
-            f"You are **GGU AI**, a high-performance **Senior Software Engineer (10+ years exp)** living inside the code editor. Current OS: {current_os}\n"
+            f"You are **DOCAI**, a high-performance **Senior Software Engineer (10+ years exp)** living inside the code editor. Current OS: {current_os}\n"
             f"Detected Project Type: {project_type}\n"
             f"Detected Project Root folder: `{project_root}`\n\n"
             "--- IDENTITY & EXPERTISE ---\n"
@@ -608,26 +608,26 @@ async def chat_with_agent(req: ChatRequest):
 
         if "summary" in msg_lower:
             system_instruction = (
-                "You are GGU AI, an Autonomous CI/CD Healing Agent. "
+                "You are DOCAI, an Autonomous Document Recovery Agent. "
                 "Generate a high-level architectural summary of the provided repository context.\n"
                 f"{system_instruction}"
                 "Be sure to cite the main modules using the citation brackets [module_name.py]."
             )
         elif msg_lower.strip() in ["hi", "hi!", "hello", "hello!", "hey", "hey!", "hoe are you", "how are you", "how are you?", "what's up", "what's up?", "hii", "hiii","who are you","who is this","who are you?"]:
             system_instruction = (
-                "You are **GGU AI**, a friendly Autonomous AI Agent. "
+                "You are **DOCAI**, a friendly Autonomous AI Agent. "
                 "The user just sent a casual greeting. "
                 "Respond with a very short and polite 1-2 sentence conversational reply (e.g., 'Hello! I am doing well, thanks. How can I help you with your project today?'). "
                 "DO NOT output any Vibe/Plan/Act/Review protocol or lengthy technical responses."
             )
         elif any(k in msg_lower for k in ["create", "new file", "new folder", "generate code"]):
             system_instruction = (
-                "You are GGU AI, the Autonomous Creator. Your goal is to help the user build new features by creating files and folders.\n"
+                "You are DOCAI, the Autonomous Creator. Your goal is to help the user build new features by creating files and folders.\n"
                 f"{system_instruction}"
             )
         else:
             system_instruction = (
-                "You are **GGU AI**, a high-performance Autonomous AI Agent. "
+                "You are **DOCAI**, a high-performance Autonomous AI Agent. "
                 "Maintain your identity as a professional workspace companion. "
                 "If the user greets you or asks who you are, prioritize a helpful, conversational response about your capabilities (bug fixing, scanning, test execution). "
                 "Do NOT just output code snippets from the context unless specifically asked to fix or explain them.\n\n"
@@ -1628,6 +1628,14 @@ async def download_fixed_code(run_id: str, background_tasks: BackgroundTasks):
             try: os.remove(zip_full_path)
             except: pass
         raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
+# Static Files (Pure HTML Frontend)
+# ---------------------------------------------------------------------------
+from fastapi.staticfiles import StaticFiles
+frontend_dir = ROOT_DIR / "frontend"
+if frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
 # ---------------------------------------------------------------------------
 # State Initialization

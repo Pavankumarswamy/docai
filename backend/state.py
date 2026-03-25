@@ -73,8 +73,8 @@ def load_projects(import_chat_history_callback=None):
                 
                 runs[k] = {
                     "status": v.get("status", "completed"),
-                    "team_name": v.get("team_name") or "GGU AI",
-                    "leader_name": v.get("leader_name") or "AI_PROJECT",
+                    "team_name": v.get("team_name") or "DOCAI",
+                    "leader_name": v.get("leader_name") or "PROJECT",
                     "live": {
                         "phase": "done",
                         "message": "Project restored",

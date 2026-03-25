@@ -3,11 +3,8 @@
     "version": "1.1.0",
     "description": "GGU AI Autonomous Word Document Processing Agent",
     "scripts": {
-        "setup": "npm install --prefix frontend-react && npm install --prefix electron-app && cd backend && python -m venv .venv && .venv\\Scripts\\activate && pip install -r requirements.txt && pip install pyinstaller",
-        "build:frontend": "npm run build --prefix frontend-react",
-        "build:backend": "cd backend && .\\.venv\\Scripts\\pyinstaller --noconfirm --onefile --console --name \"backend\" --add-data \".env.example;.\" run_backend.py",
-        "build:electron": "npm run dist --prefix electron-app",
-        "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
+        "setup": "npm install --prefix frontend-react && cd backend && python -m venv .venv && .venv\\Scripts\\activate && pip install -r requirements.txt",
+        "build": "npm run build --prefix frontend-react"
     },
     "author": "S GGU AI KUMAR SWAMY",
     "license": "MIT"
