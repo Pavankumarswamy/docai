@@ -120,10 +120,50 @@ def _call_ollama(
 
 # ── Markdown stripper ─────────────────────────────────────────────────────────
 
+def _extract_first_json(text: str) -> str:
+    """
+    Extract the first complete JSON object `{...}` or array `[...]` from text.
+
+    Handles models that append prose after the JSON block, which causes
+    json.loads to raise 'Extra data' errors.  Uses a character-level
+    depth counter that is string-escape-aware.
+
+    Returns the extracted JSON string, or the original text if nothing found.
+    """
+    for open_ch, close_ch in [('{', '}'), ('[', ']')]:
+        start = text.find(open_ch)
+        if start == -1:
+            continue
+        depth       = 0
+        in_string   = False
+        escape_next = False
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return text
+
+
 def _strip_markdown(text: str) -> str:
     """
-    Remove markdown code fences that Ollama models sometimes emit despite
-    being instructed not to, and strip common leaked header lines.
+    1. Remove markdown code fences (```json ... ```) that Ollama emits.
+    2. Strip common leaked header lines.
+    3. Extract the first complete JSON object/array so that trailing prose
+       from the model does not cause 'Extra data' parse errors.
     """
     text = text.strip()
 
@@ -132,10 +172,8 @@ def _strip_markdown(text: str) -> str:
         try:
             parts = text.split("```")
             if len(parts) >= 3:
-                # content lives between the first and second fence
                 inner = parts[1]
                 lines = inner.splitlines()
-                # strip optional language tag  (e.g.  ```json)
                 if lines and lines[0].strip().lower() in (
                     "python", "javascript", "js", "ts", "typescript",
                     "jsx", "tsx", "html", "css", "json", ""
@@ -158,4 +196,11 @@ def _strip_markdown(text: str) -> str:
         line for line in text.splitlines()
         if not any(line.strip().startswith(p) for p in bad_prefixes)
     ]
-    return "\n".join(cleaned).strip()
+    text = "\n".join(cleaned).strip()
+
+    # ── Extract first complete JSON object/array (handles trailing prose) ─────
+    # Only run this when the text looks like it contains JSON
+    if '{' in text or '[' in text:
+        text = _extract_first_json(text)
+
+    return text
