@@ -37,6 +37,8 @@ if not exist "%CLI_SCRIPT%" (
 
 :: ── Enable UTF-8 output for rich / Unicode symbols ───────────
 chcp 65001 >nul 2>&1
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
 
 :: ── Launch the interactive CLI ────────────────────────────────
 "%VENV_PYTHON%" "%CLI_SCRIPT%" %*

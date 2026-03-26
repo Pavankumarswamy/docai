@@ -38,6 +38,13 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+
+# ── Force UTF-8 output on Windows (must happen before Rich initialises) ───────
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 from pathlib import Path
 from typing import Optional
 
@@ -137,7 +144,7 @@ RESTRICTED = {
 # Console (shared singleton)
 # ─────────────────────────────────────────────────────────────────────────────
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config persistence
