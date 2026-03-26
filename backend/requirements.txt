@@ -1,28 +1,30 @@
-# Runtime dependencies for the CI/CD Healing Agent backend
+# Runtime dependencies for the DOCAI Document Intelligence System
 # Pinned versions compatible with Python 3.11–3.14
 
+# ── Web backend (FastAPI — kept for API consumers, not required for CLI) ──────
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
-gitpython>=3.1.40
-docker>=7.0.0
-pytest>=8.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.2.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 requests>=2.31.0
+gitpython>=3.1.40
 
-# LLM – NVIDIA API (OpenAI-compatible) + optional Ollama fallback
+# ── LLM — NVIDIA API (OpenAI-compatible) + optional Ollama fallback ───────────
 openai>=1.30.0
 
-# Document Processing
+# ── Document Processing ───────────────────────────────────────────────────────
 python-docx>=1.1.0
 openpyxl>=3.1.2
 pandas>=2.2.0
 mammoth>=1.8.0
+lxml>=5.2.0
 
-# Note: crewai has Python <3.12 restriction; we use concurrent.futures natively
-# Uncomment if you are on Python 3.11:
-# crewai>=0.28.0
+# ── LangGraph multi-agent pipeline ───────────────────────────────────────────
 langchain-core>=0.2.0
 langgraph>=0.0.60
-# langchain-openai>=0.1.0
+
+# ── Interactive Terminal CLI ───────────────────────────────────────────────────
+rich>=13.7.0          # Panels, tables, live display, progress bars, prompts
