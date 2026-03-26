@@ -258,6 +258,7 @@ def run_pipeline(
         with open(edits_log_path, "w", encoding="utf-8") as f:
             json.dump(all_fixes, f, indent=4, ensure_ascii=False)
 
+        runs[run_id]["status"] = "completed"
         update_live("done", "✅ All documents processed successfully.")
 
         end_time = datetime.now(timezone.utc)

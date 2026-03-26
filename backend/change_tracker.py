@@ -142,6 +142,12 @@ def apply_tracked_changes(doc: Document, edits: List[dict]) -> None:
 
     for edit in edits:
         b_id    = edit.get("id")
+        # LLM sometimes returns id as a string — coerce to int
+        if b_id is not None:
+            try:
+                b_id = int(b_id)
+            except (ValueError, TypeError):
+                b_id = None
         e_type  = edit.get("type", "paragraph").lower()
         orig    = edit.get("original_text", "").strip()
         new_t   = edit.get("new_text", "").strip()
