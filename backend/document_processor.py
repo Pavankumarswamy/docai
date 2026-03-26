@@ -9,7 +9,7 @@ from pathlib import Path
 from docx import Document
 from datetime import datetime, timezone
 
-from llm_client import _call_nvidia, _strip_markdown
+from llm_client import _call_ollama, _strip_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ def generate_document_fix(problem_desc: str, doc_content: str, run_id: str) -> d
     ]
     
     try:
-        response_text = _call_nvidia(messages)
+        response_text = _call_ollama(messages)
         content = _strip_markdown(response_text)
         data = json.loads(content)
         return data

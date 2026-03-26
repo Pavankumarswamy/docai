@@ -15,8 +15,9 @@ class RUN_PATHS_DICT(dict):
 runs = {}
 RUN_PATHS = RUN_PATHS_DICT()
 GLOBAL_CONFIG = {
-    "github_pat": os.getenv("GITHUB_PAT", ""),
-    "nvidia_api_key": os.getenv("NVIDIA_API_KEY", "")
+    "github_pat":    os.getenv("GITHUB_PAT",    ""),
+    "ollama_model":  os.getenv("OLLAMA_MODEL",  "llama3"),
+    "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
 }
 
 # Paths

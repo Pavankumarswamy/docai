@@ -14,7 +14,7 @@ import logging
 from typing import TypedDict, List, Any
 
 from langgraph.graph import StateGraph, END
-from llm_client import _call_nvidia, _strip_markdown
+from llm_client import _call_ollama, _strip_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ def retriever_node(state: AgentState) -> dict:
     )
 
     try:
-        resp = _call_nvidia([
+        resp = _call_ollama([
             {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": user_prompt},
         ])
@@ -133,7 +133,7 @@ def editor_node(state: AgentState) -> dict:
 
     try:
         logger.debug(f"[Editor] Processing section: {state.get('section_name')}")
-        resp = _call_nvidia([
+        resp = _call_ollama([
             {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": user_prompt},
         ])
@@ -175,7 +175,7 @@ def reviewer_node(state: AgentState) -> dict:
 
     try:
         logger.debug(f"[Reviewer] Reviewing section: {state.get('section_name')}")
-        resp = _call_nvidia([
+        resp = _call_ollama([
             {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": user_prompt},
         ])
@@ -214,7 +214,7 @@ def refiner_node(state: AgentState) -> dict:
 
     try:
         logger.debug(f"[Refiner] Finalizing section: {state.get('section_name')}")
-        resp = _call_nvidia([
+        resp = _call_ollama([
             {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": user_prompt},
         ])

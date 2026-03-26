@@ -84,6 +84,7 @@ try:
     from input_layer import list_docx_files
     from run_logger import configure_run_logger
     from html_exporter import docx_to_html_preview, open_in_browser
+    from llm_client import list_ollama_models, set_active_model, get_active_model
 except ImportError as _e:
     print(f"\n[ERROR] Cannot import DOCAI modules: {_e}\n"
           "Make sure you are running from the backend/ directory.\n")
@@ -197,7 +198,9 @@ def _show_main_menu() -> None:
     t.add_row("  3", "View Logs",
               "Inspect the internal run log (colour-coded)")
     t.add_row("  4", "Settings",
-              "Show configuration, API keys, and paths")
+              "Show configuration and paths")
+    t.add_row("  5", "Select Ollama Model",
+              f"Choose LLM model  [dim](active: {get_active_model()})[/]")
     t.add_row("  Q", "Quit", "Exit DOCAI")
 
     console.print(Panel(
@@ -1067,6 +1070,184 @@ def _flow_browse_output() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Model selector
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _flow_select_model(*, startup: bool = False) -> None:
+    """
+    Fetch available Ollama models, display them as a numbered table,
+    and let the user pick one.  Updates the active model in llm_client.
+
+    If *startup* is True and a model is already saved in config,
+    auto-apply it silently (user can change it via menu option 5).
+    """
+    _section_header("Select Ollama Model")
+
+    cfg        = _load_config()
+    saved_model = cfg.get("ollama_model", "")
+
+    # ── Check Ollama is reachable ──────────────────────────────────────────────
+    console.print(f"  [{_C_DIM}]Connecting to Ollama…[/]")
+
+    try:
+        import requests as _req
+        models = list_ollama_models()
+    except Exception as exc:
+        console.print(Panel(
+            f"[{_C_ERROR}]✗  Cannot reach Ollama[/]\n\n"
+            f"[dim]{exc}[/]\n\n"
+            "Make sure Ollama is installed and running:\n"
+            f"  [bold]ollama serve[/]\n\n"
+            f"Then restart DOCAI or select option [bold]5[/] again.",
+            title=f"[{_C_ERROR}]  Ollama Unavailable  [/]",
+            border_style="red",
+            padding=(1, 2),
+        ))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/]", default="", console=console)
+        return
+
+    if not models:
+        console.print(Panel(
+            f"[{_C_WARN}]No models found in Ollama.[/]\n\n"
+            "Pull a model first, e.g.:\n"
+            "  [bold]ollama pull llama3[/]\n"
+            "  [bold]ollama pull mistral[/]\n"
+            "  [bold]ollama pull phi3[/]",
+            title=f"[{_C_WARN}]  No Models Available  [/]",
+            border_style="yellow",
+            padding=(1, 2),
+        ))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/]", default="", console=console)
+        return
+
+    # ── If called at startup and a saved model still exists, restore silently ──
+    if startup and saved_model:
+        model_names = [m.get("name", "") for m in models]
+        if saved_model in model_names:
+            set_active_model(saved_model)
+            console.print(
+                f"  [{_C_SUCCESS}]✓[/]  Restored model from last session: "
+                f"[bold cyan]{saved_model}[/]"
+            )
+            time.sleep(0.6)
+            return
+        # saved model was deleted — fall through to picker
+
+    # ── Display model table ────────────────────────────────────────────────────
+    tbl = Table(
+        title=f"[bold]Available Ollama Models[/]  "
+              f"[dim]({len(models)} installed)[/]",
+        box=box.ROUNDED,
+        border_style="cyan",
+        padding=(0, 1),
+        show_lines=False,
+        highlight=False,
+    )
+    tbl.add_column("#",            width=4,  justify="right",  style="dim")
+    tbl.add_column("Model Name",   style="bold white",          min_width=22)
+    tbl.add_column("Family",       style="cyan",                width=16)
+    tbl.add_column("Params",       justify="right", style=_C_PRIMARY, width=10)
+    tbl.add_column("Quant",        style="dim",                 width=10)
+    tbl.add_column("Size",         justify="right", style="dim", width=10)
+
+    active = get_active_model()
+
+    for i, m in enumerate(models, 1):
+        name    = m.get("name", "?")
+        details = m.get("details", {})
+        family  = details.get("family", details.get("families", ["?"])[0]
+                              if details.get("families") else "?")
+        params  = details.get("parameter_size", "?")
+        quant   = details.get("quantization_level", "?")
+        size_gb = m.get("size", 0) / 1_073_741_824  # bytes → GB
+
+        # Highlight the currently active model
+        name_display = (
+            f"[bold green]{name} ✓[/]"
+            if name == active
+            else escape(name)
+        )
+        tbl.add_row(
+            str(i),
+            name_display,
+            escape(str(family)),
+            escape(str(params)),
+            escape(str(quant)),
+            f"{size_gb:.1f} GB",
+        )
+
+    console.print(tbl)
+    console.print()
+
+    # ── Prompt for selection ───────────────────────────────────────────────────
+    console.print(
+        f"  [dim]Enter a number [bold]1–{len(models)}[/] or the exact model name.  "
+        f"Current: [bold cyan]{active}[/][/]"
+    )
+    console.print()
+
+    while True:
+        raw = Prompt.ask(
+            f"[{_C_PRIMARY}]Select model[/]",
+            default=active,
+            console=console,
+        )
+        raw = raw.strip()
+
+        # Accept numeric index
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(models):
+                chosen = models[idx]["name"]
+                break
+            console.print(
+                f"  [{_C_ERROR}]✗[/]  Number out of range (1–{len(models)})."
+            )
+            continue
+
+        # Accept exact model name
+        model_names = [m.get("name", "") for m in models]
+        if raw in model_names:
+            chosen = raw
+            break
+
+        # Accept partial match (e.g. "llama3" matches "llama3:latest")
+        partial = [n for n in model_names if n.startswith(raw)]
+        if len(partial) == 1:
+            chosen = partial[0]
+            break
+        if len(partial) > 1:
+            console.print(
+                f"  [{_C_WARN}]Ambiguous — matches:[/] "
+                + ", ".join(f"[bold]{n}[/]" for n in partial)
+            )
+            continue
+
+        console.print(
+            f"  [{_C_ERROR}]✗[/]  Model not found: [dim]{escape(raw)}[/]"
+        )
+
+    # ── Apply and persist ──────────────────────────────────────────────────────
+    set_active_model(chosen)
+    cfg["ollama_model"] = chosen
+    _save_config(cfg)
+
+    console.print()
+    console.print(Panel(
+        Align.center(
+            f"[{_C_SUCCESS}]✓  Active model set to:[/]\n\n"
+            f"[bold cyan]{chosen}[/]"
+        ),
+        border_style="green",
+        padding=(1, 4),
+    ))
+    console.print()
+    Prompt.ask("[dim]Press Enter to continue[/]", default="", console=console)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Settings
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1080,10 +1261,11 @@ def _flow_settings() -> None:
     tbl.add_column("Value", style="bold white")
 
     tbl.add_row("[bold]Application[/]", "")
-    tbl.add_row("  Version",      VERSION)
-    tbl.add_row("  Backend dir",  str(_BACKEND_DIR))
-    tbl.add_row("  Log file",     str(LOG_FILE))
-    tbl.add_row("  Config file",  str(CONFIG_FILE))
+    tbl.add_row("  Version",       VERSION)
+    tbl.add_row("  Active model",  f"[bold cyan]{get_active_model()}[/]")
+    tbl.add_row("  Backend dir",   str(_BACKEND_DIR))
+    tbl.add_row("  Log file",      str(LOG_FILE))
+    tbl.add_row("  Config file",   str(CONFIG_FILE))
 
     tbl.add_row("", "")
     tbl.add_row("[bold]Last Run[/]", "")
@@ -1181,6 +1363,7 @@ def main() -> None:
     # If both --docs and --csv are provided, jump straight to processing.
     if args.docs and args.csv:
         _show_banner()
+        _flow_select_model(startup=True)
         _flow_process_documents(
             pre_docs=args.docs,
             pre_csv=args.csv,
@@ -1188,6 +1371,10 @@ def main() -> None:
             pre_leader=args.leader,
         )
         return
+
+    # ── Startup: restore or select Ollama model ───────────────────────────────
+    _show_banner()
+    _flow_select_model(startup=True)
 
     # ── Interactive main loop ─────────────────────────────────────────────────
     try:
@@ -1198,7 +1385,7 @@ def main() -> None:
 
             choice = Prompt.ask(
                 f"[{_C_PRIMARY}]Select option[/]",
-                choices=["1", "2", "3", "4", "q", "Q"],
+                choices=["1", "2", "3", "4", "5", "q", "Q"],
                 default="1",
                 show_choices=False,
                 console=console,
@@ -1222,6 +1409,9 @@ def main() -> None:
             elif choice == "4":
                 _show_banner()
                 _flow_settings()
+            elif choice == "5":
+                _show_banner()
+                _flow_select_model()
             elif choice.lower() == "q":
                 console.print(
                     f"\n  [{_C_PRIMARY}]Goodbye![/]  "
