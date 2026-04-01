@@ -17,7 +17,6 @@ Module map:
   9. results_generator  → run summary dict
 """
 
-import copy
 import json
 import logging
 import shutil
@@ -28,11 +27,14 @@ from input_layer import list_docx_files, read_csv, read_docx
 from document_processor import extract_sections_from_docx, docx_to_html
 from relevance_engine import get_relevant_rows, pre_filter_rows, rows_to_context_string
 from multi_agents import multi_agent_pipeline
-from edit_engine import apply_edits
+from edit_engine import (apply_edits, snapshot_doc, restore_doc,
+                         structure_integrity_check)
 from change_tracker import apply_tracked_changes
 from output_manager import get_output_path, save_document
 from run_logger import configure_run_logger, RunTracker
 from results_generator import generate_results
+from dedup import dedup_edits
+from metrics import DocMetrics
 
 configure_run_logger()
 logger = logging.getLogger(__name__)
@@ -154,6 +156,7 @@ def run_pipeline(
             # Load fresh in-memory copy for edit application
             working_doc = read_docx(doc_file)
             doc_edits_total = []
+            doc_metrics     = DocMetrics()
 
             # ══════════════════════════════════════════════════════════════
             # Section loop
@@ -217,15 +220,48 @@ def run_pipeline(
                     tracker.section_processed(s_name, 0)
                     continue
 
-                # ── Apply edits to working document ───────────────────────
-                applied = apply_edits(working_doc, final_edits)
+                # ── Dedup edits before applying ───────────────────────────
+                final_edits = dedup_edits(final_edits)
+                if not final_edits:
+                    update_live(append_terminal=f"[{s_name}] All edits removed by dedup → retained.")
+                    tracker.section_processed(s_name, 0)
+                    continue
+
+                # ── Snapshot for rollback ─────────────────────────────────
+                doc_snapshot = snapshot_doc(working_doc)
+
+                # ── Apply edits (section-scoped) ──────────────────────────
+                applied = apply_edits(
+                    working_doc,
+                    final_edits,
+                    section_name          = s_name,
+                    section_content       = section["content"],
+                    section_block_indices = section.get("blocks"),
+                    doc_metrics           = doc_metrics,
+                )
+
+                # ── Structure integrity check → rollback if violated ───────
+                ok, reason = structure_integrity_check(working_doc, doc_snapshot)
+                if not ok:
+                    logger.error(
+                        f"[{run_id}] Structure violation in '{s_name}': {reason}. "
+                        "Rolling back section."
+                    )
+                    working_doc = restore_doc(doc_snapshot)
+                    update_live(
+                        append_terminal=f"[ROLLBACK] {s_name} — structure violation: {reason}"
+                    )
+                    tracker.error(f"Structure rollback [{s_name}]", Exception(reason))
+                    continue
 
                 # ── Apply inline change tracking ──────────────────────────
                 apply_tracked_changes(working_doc, final_edits)
 
+                n_applied = sum(1 for a in applied
+                                if not a.get("status", "").startswith("skipped"))
                 doc_edits_total.extend(applied)
-                tracker.section_processed(s_name, len(applied))
-                update_live(append_terminal=f"[{s_name}] {len(applied)} edit(s) applied. {explanation}")
+                tracker.section_processed(s_name, n_applied)
+                update_live(append_terminal=f"[{s_name}] {n_applied} edit(s) applied. {explanation}")
 
                 all_fixes.append({
                     "file":          doc_rel_path,
@@ -247,6 +283,8 @@ def run_pipeline(
                 update_live(append_terminal=f">>> No changes for {doc_file.name}.")
 
             tracker.summary()
+            doc_metrics.log(doc_file.name)
+            metrics_dict = doc_metrics.to_dict()
             update_live(
                 append_terminal=(
                     f"\n[STATS] {doc_file.name}: "
@@ -254,6 +292,11 @@ def run_pipeline(
                     f"skipped={tracker.sections_skipped}, "
                     f"llm_calls={tracker.llm_calls}, "
                     f"errors={len(tracker.errors)}\n"
+                    f"[METRICS] applied={metrics_dict['applied']} "
+                    f"skipped={metrics_dict['skipped']} "
+                    f"inserted={metrics_dict['inserted']} "
+                    f"avg_conf={metrics_dict['avg_confidence']} "
+                    f"low_conf_rate={metrics_dict['low_confidence_rate']}\n"
                 )
             )
 
