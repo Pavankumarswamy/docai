@@ -26,7 +26,7 @@ from pathlib import Path
 
 from input_layer import list_docx_files, read_csv, read_docx
 from document_processor import extract_sections_from_docx, docx_to_html
-from relevance_engine import get_relevant_rows, rows_to_context_string
+from relevance_engine import get_relevant_rows, pre_filter_rows, rows_to_context_string
 from multi_agents import multi_agent_pipeline
 from edit_engine import apply_edits
 from change_tracker import apply_tracked_changes
@@ -176,6 +176,13 @@ def run_pipeline(
                 if not relevant_rows:
                     tracker.section_skipped(s_name, reason="no relevant data")
                     update_live(append_terminal=f"[SKIP] {s_name} — no relevant context rows.")
+                    continue
+
+                # Pre-filter: tighten to high-quality rows before planner sees them
+                relevant_rows = pre_filter_rows(relevant_rows, top_k=18)
+                if not relevant_rows:
+                    tracker.section_skipped(s_name, reason="no high-quality rows after pre-filter")
+                    update_live(append_terminal=f"[SKIP] {s_name} — no high-quality context rows.")
                     continue
 
                 context_str = rows_to_context_string(relevant_rows)

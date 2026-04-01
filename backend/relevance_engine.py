@@ -136,6 +136,68 @@ def get_relevant_rows(
     return result
 
 
+def pre_filter_rows(
+    rows: List[dict],
+    top_k: int = 18,
+) -> List[dict]:
+    """
+    Second-pass filter applied AFTER get_relevant_rows().
+    Reduces noise before the Planner sees the context.
+
+    Drops:
+    - Rows with no Description AND no Acceptance Criteria
+    - Rows whose State is 'Closed', 'Resolved', or 'Done'
+    - Rows whose Title is empty
+
+    Keeps:
+    - Rows with Acceptance Criteria (strong signal)
+    - Rows whose Work Item Type is 'User Story' or 'Feature' (highest quality)
+
+    Returns the top top_k rows by original order (already relevance-sorted).
+    """
+    _CLOSED_STATES = {"closed", "resolved", "done", "rejected", "removed", "wontfix"}
+
+    quality: List[tuple] = []   # (quality_score, row)
+
+    for row in rows:
+        title  = str(row.get("Title", "")).strip()
+        desc   = str(row.get("Description", "")).strip()
+        ac     = str(row.get("Acceptance Criteria", "")).strip()
+        state  = str(row.get("State", "")).strip().lower()
+        wit    = str(row.get("Work Item Type", "")).strip().lower()
+
+        # Hard drops
+        if not title:
+            continue
+        if state in _CLOSED_STATES:
+            continue
+        if not desc and not ac:
+            continue
+
+        # Quality score (higher = more useful to planner)
+        q = 0
+        if ac:
+            q += 3
+        if desc and len(desc) > 30:
+            q += 2
+        if "user story" in wit or "feature" in wit:
+            q += 2
+        if "task" in wit:
+            q += 1
+
+        quality.append((q, row))
+
+    # Sort by quality descending, preserve up to top_k
+    quality.sort(key=lambda x: x[0], reverse=True)
+    result = [r for _, r in quality[:top_k]]
+
+    logger.debug(
+        f"[RelevanceEngine] pre_filter: {len(rows)} → {len(result)} rows "
+        f"(top_k={top_k})"
+    )
+    return result
+
+
 def rows_to_context_string(rows: List[dict]) -> str:
     """
     Converts a filtered list of CSV rows to a compact context block for the LLM.

@@ -1,35 +1,36 @@
 """
 edit_engine.py – Robust Edit Application Engine for DOCAI
 
-3-tier fallback for each edit:
-  Tier 1: Exact text match → replace in-place
-  Tier 2: Partial/fuzzy match → replace best-matching fragment
-  Tier 3: Append insertion → append new content to block end
+Block location uses scorer.locate_block() — 4-stage matching:
+  exact → fuzzy (≥0.80) → keyword-cosine (≥0.72) → safe insert fallback
 
-Guarantees: if an edit list is non-empty and the block ID is valid,
-at least one change WILL be applied (no silent skips).
+Confidence gate (per edit):
+  ≥ 0.85  → apply silently
+  ≥ 0.50  → apply + log WARNING
+  <  0.50 → skip  + log WARNING  (NEVER silent)
+
+Every applied/skipped edit carries full traceability metadata:
+  match_type, confidence, plan_id, source_row_id, status
 """
 
-import re
 import logging
 from typing import List
 
 from docx import Document
-from docx.document import Document as _Document
+from docx.text.paragraph import Paragraph
+from docx.table import Table
 from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
-from docx.table import _Cell, Table
-from docx.text.paragraph import Paragraph
+
+from scorer import locate_block, confidence_decision
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Block helpers
-# ---------------------------------------------------------------------------
+# ── Block walker ─────────────────────────────────────────────────────────────
 
 def get_blocks(doc: Document) -> list:
-    """Walk the document body returning Paragraph and Table objects in order."""
+    """Return all Paragraph and Table objects in document order."""
     blocks = []
     for child in doc.element.body.iterchildren():
         if isinstance(child, CT_P):
@@ -39,170 +40,182 @@ def get_blocks(doc: Document) -> list:
     return blocks
 
 
-# ---------------------------------------------------------------------------
-# Fuzzy matching helper
-# ---------------------------------------------------------------------------
+# ── Paragraph text writer (preserves run structure where possible) ────────────
 
-def _word_overlap(a: str, b: str) -> float:
-    """Jaccard similarity between word sets of two strings."""
-    wa = set(re.findall(r"\w+", a.lower()))
-    wb = set(re.findall(r"\w+", b.lower()))
-    if not wa or not wb:
-        return 0.0
-    return len(wa & wb) / len(wa | wb)
-
-
-def _best_paragraph_match(original_text: str, paragraphs: list[Paragraph], threshold: float = 0.5):
+def _set_paragraph_text(para: Paragraph, new_text: str) -> None:
     """
-    Among a list of paragraphs find the one whose text best matches original_text.
-    Returns (paragraph, score) or (None, 0) if below threshold.
+    Write new_text into a paragraph.
+    Clears all runs and writes into the first run to preserve formatting.
     """
-    best_para = None
-    best_score = 0.0
-    for para in paragraphs:
-        score = _word_overlap(para.text, original_text)
-        if score > best_score:
-            best_score = score
-            best_para = para
-    if best_score >= threshold:
-        return best_para, best_score
-    return None, 0.0
+    for run in para.runs:
+        run.text = ""
+    if para.runs:
+        para.runs[0].text = new_text
+    else:
+        para.add_run(new_text)
 
 
-# ---------------------------------------------------------------------------
-# Core apply functions
-# ---------------------------------------------------------------------------
+# ── Paragraph edit ────────────────────────────────────────────────────────────
 
-def _apply_paragraph_edit(block: Paragraph, edit: dict) -> str:
+def _apply_paragraph_edit(block: Paragraph, edit: dict, match_type: str) -> str:
     """
-    Apply a single edit to a Paragraph block.
-    Returns: 'exact' | 'partial' | 'appended' | 'skipped'
+    Apply one edit to a located paragraph.
+
+    For exact/fuzzy: replace the matched fragment in-place.
+    For keyword_cos / insert_fallback: append to paragraph end.
+
+    Returns: status string.
     """
     original_text = edit.get("original_text", "").strip()
-    new_text = edit.get("new_text", "").strip()
+    new_text      = edit.get("new_text",      "").strip()
 
     if not new_text:
-        return "skipped"
+        return "skipped_empty"
 
     current = block.text
 
-    # Tier 1: Exact match
-    if original_text and original_text in current:
-        block.text = current.replace(original_text, new_text, 1)
-        return "exact"
+    if match_type in ("exact", "fuzzy") and original_text and original_text in current:
+        _set_paragraph_text(block, current.replace(original_text, new_text, 1))
+        return "replaced"
 
-    # Tier 2: Partial match (leading phrase)
-    if original_text:
-        words_orig = original_text.split()
-        # Try matching first 5 words of original_text
-        fragment = " ".join(words_orig[:5])
-        if fragment and fragment.lower() in current.lower():
-            idx = current.lower().find(fragment.lower())
-            block.text = current[:idx] + new_text + "."
-            return "partial"
+    if match_type == "insert_fallback" or not original_text:
+        _set_paragraph_text(block, new_text)
+        return "inserted"
 
-    # Tier 3: Append insertion — do not silently skip
-    if original_text:
-        # Append at end of paragraph
-        block.text = current.rstrip(". ") + ". " + new_text + "."
-    else:
-        block.text = new_text
+    # Keyword-cos match: original_text may not be verbatim — append instead
+    cleaned = current.rstrip(". ")
+    _set_paragraph_text(block, f"{cleaned}. {new_text}.")
     return "appended"
 
 
+# ── Table edit ────────────────────────────────────────────────────────────────
+
 def _apply_table_edit(block: Table, edit: dict) -> str:
-    """
-    Apply a single edit to a Table cell.
-    Returns: 'exact' | 'override' | 'skipped'
-    """
     r_idx = edit.get("row_index")
     c_idx = edit.get("col_index")
-    original_text = edit.get("original_text", "").strip()
     new_text = edit.get("new_text", "").strip()
 
     if r_idx is None or c_idx is None or not new_text:
-        return "skipped"
-
+        return "skipped_empty"
     try:
         cell = block.rows[r_idx].cells[c_idx]
     except IndexError:
-        return "skipped"
+        return "skipped_oob"
 
-    # Tier 1: Exact match
+    original_text = edit.get("original_text", "").strip()
     if original_text and original_text in cell.text:
         cell.text = cell.text.replace(original_text, new_text, 1)
-        return "exact"
+        return "replaced"
 
-    # Tier 2/3: Override cell content
     cell.text = new_text
-    return "override"
+    return "overridden"
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+# ── Insert new paragraph after last block in document ────────────────────────
+
+def _insert_paragraph(doc: Document, new_text: str) -> None:
+    """Append a new paragraph at the end of the document body."""
+    doc.add_paragraph(new_text)
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def apply_edits(doc: Document, edits: List[dict]) -> List[dict]:
     """
-    Apply a list of LLM-generated edits to an in-memory Document.
+    Apply LLM-generated edits to an in-memory Document using the 4-stage locator.
 
     Args:
-        doc:   The document to modify (mutated in place).
-        edits: List of edit dicts with keys: type, id, original_text, new_text,
-               row_index (tables only), col_index (tables only).
+        doc:   In-memory Document (mutated in place).
+        edits: List of edit dicts from the pipeline. Expected keys:
+               type, original_text, new_text, id (optional),
+               row_index / col_index (tables), plan_id (optional),
+               source_row_id (optional), target_hint (optional).
 
     Returns:
-        List of edit dicts augmented with a 'status' key.
+        List of edit dicts, each augmented with:
+          status, match_type, confidence, plan_id, source_row_id
     """
     if not edits:
         return []
 
-    blocks = get_blocks(doc)
+    blocks  = get_blocks(doc)
     results = []
 
     for edit in edits:
-        b_id = edit.get("id")
-        # LLM sometimes returns id as a string — coerce to int
-        if b_id is not None:
+        # Coerce id to int (LLM sometimes returns string)
+        raw_id = edit.get("id")
+        if raw_id is not None:
             try:
-                b_id = int(b_id)
+                raw_id = int(raw_id)
             except (ValueError, TypeError):
-                b_id = None
-        e_type = edit.get("type", "").lower()
-        status = "skipped"
+                raw_id = None
 
-        if b_id is None:
-            # No ID provided: scan all paragraphs for best match
-            paras = [b for b in blocks if isinstance(b, Paragraph)]
-            best_para, score = _best_paragraph_match(edit.get("original_text", ""), paras)
-            if best_para:
-                status = _apply_paragraph_edit(best_para, edit) + f"(fuzzy:{score:.2f})"
+        e_type        = edit.get("type", "paragraph").lower()
+        target_hint   = edit.get("target_hint") or edit.get("original_text", "")
+        plan_id       = int(edit.get("plan_id", 0))
+        source_row_id = str(edit.get("source_row_id", ""))
+
+        # ── If edit carries an explicit block id, use it as a hint first ──
+        if raw_id is not None and 0 <= raw_id < len(blocks):
+            named_block = blocks[raw_id]
+            named_text  = named_block.text if isinstance(named_block, Paragraph) else ""
+            # Accept it only if the hint loosely appears in that block
+            if target_hint and target_hint[:20].lower() in named_text.lower():
+                block, b_idx, match_type, confidence = named_block, raw_id, "exact", 1.0
             else:
-                status = "no_match"
-
-        elif b_id >= len(blocks):
-            logger.warning(f"[EditEngine] Block ID {b_id} out of range ({len(blocks)} blocks). Falling back to fuzzy.")
-            paras = [b for b in blocks if isinstance(b, Paragraph)]
-            best_para, score = _best_paragraph_match(edit.get("original_text", ""), paras)
-            if best_para:
-                status = _apply_paragraph_edit(best_para, edit) + f"(idfuzzy:{score:.2f})"
-            else:
-                status = "id_out_of_range"
-
+                block, b_idx, match_type, confidence = locate_block(
+                    blocks, target_hint, plan_id, source_row_id
+                )
         else:
-            block = blocks[b_id]
-            if e_type == "paragraph" and isinstance(block, Paragraph):
-                status = _apply_paragraph_edit(block, edit)
-            elif e_type == "table" and isinstance(block, Table):
-                status = _apply_table_edit(block, edit)
-            else:
-                # Type mismatch: try the other type if possible
-                if isinstance(block, Paragraph):
-                    status = _apply_paragraph_edit(block, edit) + "(type_coerced)"
-                else:
-                    status = "type_mismatch"
+            block, b_idx, match_type, confidence = locate_block(
+                blocks, target_hint, plan_id, source_row_id
+            )
 
-        logger.debug(f"[EditEngine] Edit id={b_id} type={e_type} → {status}")
-        results.append({**edit, "status": status})
+        # ── Confidence gate ───────────────────────────────────────────────
+        decision = confidence_decision(confidence, edit.get("section_name", ""), target_hint)
+
+        if decision == "skip":
+            results.append({
+                **edit,
+                "status":        "skipped_low_confidence",
+                "match_type":    match_type,
+                "confidence":    round(confidence, 3),
+                "plan_id":       plan_id,
+                "source_row_id": source_row_id,
+            })
+            continue
+
+        # ── Apply ─────────────────────────────────────────────────────────
+        if match_type == "insert_fallback" or block is None:
+            # Stage 4 safe insert — append to document
+            new_text = edit.get("new_text", "").strip()
+            if new_text:
+                _insert_paragraph(doc, new_text)
+                status = "inserted_fallback"
+            else:
+                status = "skipped_empty"
+        elif e_type == "table" and isinstance(block, Table):
+            status = _apply_table_edit(block, edit)
+        elif isinstance(block, Paragraph):
+            status = _apply_paragraph_edit(block, edit, match_type)
+        else:
+            # Type mismatch — coerce to paragraph edit if possible
+            if isinstance(block, Paragraph):
+                status = _apply_paragraph_edit(block, edit, match_type) + "_coerced"
+            else:
+                status = "skipped_type_mismatch"
+
+        logger.info(
+            f"[Applier] plan={plan_id} section='{edit.get('section_name','')}' "
+            f"match={match_type} conf={confidence:.2f} status={status}"
+        )
+        results.append({
+            **edit,
+            "status":        status,
+            "match_type":    match_type,
+            "confidence":    round(confidence, 3),
+            "plan_id":       plan_id,
+            "source_row_id": source_row_id,
+        })
 
     return results

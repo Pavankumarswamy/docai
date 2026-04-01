@@ -20,12 +20,16 @@ Design constraints
 
 import json
 import logging
+import re
 from typing import TypedDict, List, Any
 
 from langgraph.graph import StateGraph, END
 from llm_client import _call_ollama, _strip_markdown
 from planner import build_edit_plan, plan_to_context_string
 from validator import validate_edits, sanitize_new_text
+
+# Threshold: use LLM refiner only when Pass-1 produces more than this many edits
+_LLM_REFINER_THRESHOLD = 5
 
 logger = logging.getLogger(__name__)
 
@@ -245,13 +249,35 @@ def validator_node(state: AgentState) -> dict:
 
 def refiner_node(state: AgentState) -> dict:
     """
-    Pass 2: Refine validated edits for clarity, conciseness, and correctness.
-    Falls back to Pass-1 edits if the LLM fails.
+    Pass 2: Refine validated edits.
+
+    Strategy:
+    - ≤ _LLM_REFINER_THRESHOLD edits → rule-based cleanup (fast, deterministic)
+    - >  _LLM_REFINER_THRESHOLD edits → LLM refiner (handles complex rewrites)
+
+    Rule-based cleanup:
+      1. Strip leading/trailing whitespace from new_text
+      2. Sentence-case new_text (capitalise first letter)
+      3. Remove duplicate edits (same original_text)
+      4. Remove no-ops (new_text == original_text after cleanup)
     """
     pass1 = state.get("pass1_edits", [])
     if not pass1:
         return {"final_edits": [], "explanation": "No meaningful updates — section retained."}
 
+    # ── Rule-based path (fast, deterministic) ─────────────────────────────
+    if len(pass1) <= _LLM_REFINER_THRESHOLD:
+        final = _rule_based_refine(pass1)
+        logger.debug(
+            f"[Refiner] Rule-based: {len(pass1)} → {len(final)} edits "
+            f"for '{state.get('section_name')}'"
+        )
+        return {
+            "final_edits": final,
+            "explanation": state.get("explanation", ""),
+        }
+
+    # ── LLM path (for complex / many edits) ───────────────────────────────
     sys_prompt = (
         "You are the Final Documentation Coordinator.\n"
         "Review the original section and proposed edits.\n"
@@ -271,22 +297,56 @@ def refiner_node(state: AgentState) -> dict:
     )
 
     try:
-        logger.debug(f"[Refiner] Finalizing section: {state.get('section_name')}")
+        logger.debug(f"[Refiner] LLM path: {len(pass1)} edits for '{state.get('section_name')}'")
         resp = _call_ollama([
             {"role": "system", "content": sys_prompt},
             {"role": "user",   "content": user_prompt},
         ])
         data = json.loads(_strip_markdown(resp))
         return {
-            "final_edits": data.get("edits", []),
+            "final_edits": data.get("edits", pass1),
             "explanation": data.get("explanation", ""),
         }
     except Exception as e:
-        logger.error(f"[Refiner] Error ({e}). Falling back to Pass-1 edits.")
+        logger.error(f"[Refiner] LLM failed ({e}). Using rule-based fallback.")
         return {
-            "final_edits": pass1,
-            "errors": state.get("errors", []) + [f"Refiner failed: {e}"],
+            "final_edits": _rule_based_refine(pass1),
+            "errors": state.get("errors", []) + [f"Refiner LLM failed: {e}"],
         }
+
+
+def _rule_based_refine(edits: List[dict]) -> List[dict]:
+    """
+    Deterministic cleanup of edit list:
+      1. Strip whitespace in new_text
+      2. Sentence-case new_text
+      3. Deduplicate by original_text
+      4. Remove no-ops
+    """
+    seen_originals: set = set()
+    result = []
+
+    for edit in edits:
+        new_text  = str(edit.get("new_text",      "")).strip()
+        orig_text = str(edit.get("original_text", "")).strip()
+
+        # 1 + 2: strip + sentence-case
+        if new_text:
+            new_text = new_text[0].upper() + new_text[1:]
+
+        # 4: remove no-op
+        if new_text == orig_text or not new_text:
+            continue
+
+        # 3: deduplicate by original_text
+        orig_key = orig_text.lower()[:80]
+        if orig_key and orig_key in seen_originals:
+            continue
+        seen_originals.add(orig_key)
+
+        result.append({**edit, "new_text": new_text})
+
+    return result
 
 
 # ---------------------------------------------------------------------------

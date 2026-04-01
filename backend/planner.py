@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 # ── Forbidden intent words (same list as Validator) ──────────────────────────
 _FORBIDDEN = {"bug", "issue", "defect", "error", "fix", "resolve", "patch"}
 
+# ── Generic / vague intent phrases to reject outright ────────────────────────
+_VAGUE_INTENTS = {
+    "update content", "improve text", "update the text", "update section",
+    "modify content", "change text", "edit content", "update this section",
+    "improve this", "make changes", "update document", "revise content",
+    "update information", "update details", "modify section",
+}
+
 PLAN_SCHEMA = """\
 [
   {
@@ -127,7 +135,8 @@ def _validate_plan_items(plan: list, section_content: str) -> List[dict]:
     valid_actions = {"modify", "insert", "skip"}
     valid_types   = {"paragraph", "list_item", "table_cell"}
     section_lower = section_content.lower()
-    result = []
+    result        = []
+    seen_hints    = set()   # deduplication by normalised target_hint
 
     for item in plan[:10]:
         if not isinstance(item, dict):
@@ -139,7 +148,7 @@ def _validate_plan_items(plan: list, section_content: str) -> List[dict]:
         intent      = str(item.get("intent", "")).strip()
         priority    = item.get("priority", 2)
 
-        # Normalise
+        # Normalise enums
         if action not in valid_actions:
             action = "modify"
         if target_type not in valid_types:
@@ -149,21 +158,39 @@ def _validate_plan_items(plan: list, section_content: str) -> List[dict]:
         except (ValueError, TypeError):
             priority = 2
 
-        # Reject forbidden language in intent
+        # Guard 1: forbidden language in intent
         intent_lower = intent.lower()
         if any(word in intent_lower for word in _FORBIDDEN):
-            logger.debug(f"[Planner] Rejected plan item — forbidden word in intent: {intent[:60]}")
+            logger.debug(f"[Planner] Rejected — forbidden word in intent: {intent[:60]}")
             continue
 
-        # Skip items without a hint (can't locate them)
+        # Guard 2: intent too short (< 5 words = too vague)
+        if len(intent.split()) < 5:
+            logger.debug(f"[Planner] Rejected — intent too short ({len(intent.split())} words): {intent}")
+            continue
+
+        # Guard 3: generic / vague intent phrase
+        intent_probe = intent_lower.strip().rstrip(".")
+        if any(intent_probe == vague or intent_probe.startswith(vague) for vague in _VAGUE_INTENTS):
+            logger.debug(f"[Planner] Rejected — vague intent: {intent[:60]}")
+            continue
+
+        # Guard 4: missing hint
         if not target_hint:
             continue
 
-        # Verify hint is loosely present (first 4 words match)
+        # Guard 5: deduplication — skip if same normalised hint already present
+        hint_key = " ".join(target_hint.lower().split()[:6])
+        if hint_key in seen_hints:
+            logger.debug(f"[Planner] Rejected — duplicate target_hint: {target_hint[:60]}")
+            continue
+        seen_hints.add(hint_key)
+
+        # Guard 6: verify hint is loosely present (first 4 words)
         hint_words = target_hint.lower().split()
         probe = " ".join(hint_words[:4])
         if probe and probe not in section_lower and action != "insert":
-            logger.debug(f"[Planner] target_hint not found in section, converting to insert: {probe}")
+            logger.debug(f"[Planner] target_hint not found — converting to insert: {probe}")
             action = "insert"
 
         result.append({
