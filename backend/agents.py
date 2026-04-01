@@ -1,17 +1,20 @@
 """
 agents.py – Production Pipeline Orchestrator for DOCAI
 
-Orchestrates all 9 modules:
+Architecture: Preprocessor → Section Manager → Matcher → Planner →
+              Editor → Validator → Applier → Change Tracker → Output
 
-  1. input_layer        → read_docx, read_csv (cached)
-  2. document_processor → extract_sections_from_docx
-  3. relevance_engine   → get_relevant_rows, rows_to_context_string
-  4. multi_agents       → Retriever → Editor → Reviewer → Refiner
-  5. edit_engine        → apply_edits (with 3-tier fallback)
-  6. change_tracker     → apply_tracked_changes (inline strikethrough/highlight)
-  7. output_manager     → get_output_path, save_document
+Module map:
+  1. input_layer        → Preprocessor  (read_docx, read_csv, cached)
+  2. document_processor → Section Manager (extract_sections_from_docx)
+  3. relevance_engine   → Matcher        (get_relevant_rows, top 30 keyword-scored)
+  4. multi_agents       → Planner + Editor + Validator + Refiner
+                          (LangGraph: Retriever → Planner → Editor → Validator → Refiner)
+  5. edit_engine        → Applier        (apply_edits, 3-tier fallback, int-safe)
+  6. change_tracker     → Change Tracker (inline blue/red tracking in .docx)
+  7. output_manager     → Output         (versioned save to output/ only)
   8. run_logger         → RunTracker per document
-  9. results_generator  → generate_results (for API response)
+  9. results_generator  → run summary dict
 """
 
 import copy
@@ -179,12 +182,13 @@ def run_pipeline(
                 update_live("fixing", f"Running Agent Pipeline on: {s_name}")
 
                 # ── LangGraph Pipeline ────────────────────────────────────
-                tracker.llm_call("retriever+editor+reviewer+refiner", s_name)
+                tracker.llm_call("retriever+planner+editor+validator+refiner", s_name)
                 initial_state = {
                     "section_name":      s_name,
                     "original_section":  section["content"],
                     "all_relevant_rows": context_str,
                     "focused_rows":      "",
+                    "edit_plan":         [],
                     "pass1_edits":       [],
                     "final_edits":       [],
                     "explanation":       "",
